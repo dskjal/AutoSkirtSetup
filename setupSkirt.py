@@ -36,7 +36,8 @@ bl_info = {
 class DskjalSetupSkirtUI(bpy.types.Panel):
     bl_label = "Setup skirt bones"
     bl_space_type = "VIEW_3D"
-    bl_region_type = "UI"
+    bl_region_type = "TOOLS"
+    bl_category = "Tools"
 
     @classmethod
     def poll(self, context):
