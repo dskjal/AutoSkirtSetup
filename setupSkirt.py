@@ -106,9 +106,11 @@ class DskjalSetupSkirtButton(bpy.types.Operator):
 
                 #append tail(i.e. next head)
                 b.tail = bottom.co
-                tailIndexTable[v.index] = bottom.index
                 if len(bottom.link_edges) > 3:
                     tails.append(bottom)
+
+                #create index
+                tailIndexTable[v.index] = bottom.index
 
                 #parenting
                 if len(v.link_edges) > 3:
@@ -124,7 +126,7 @@ class DskjalSetupSkirtButton(bpy.types.Operator):
         for b in amt.pose.bones:
             ik = b.constraints.new(type='IK')
             ik.target = ob
-            ik.subtarget = vgNameHeader + "%03d" % tailIndexTable[int(b.name[-2:])]
+            ik.subtarget = vgNameHeader + "%03d" % tailIndexTable[int(b.name[-3:])]
             ik.chain_count = 1
             ik.use_stretch = 1
 
