@@ -23,7 +23,7 @@ bl_info = {
     "name": "Setup skirt bone",
     "author": "dskjal",
     "version": (1, 0),
-    "blender": (2, 78, 0),
+    "blender": (2, 80, 0),
     "location": "Properties Shelf",
     "description": "Setup skirt bones",
     "warning": "",
@@ -36,8 +36,8 @@ bl_info = {
 class DskjalSetupSkirtUI(bpy.types.Panel):
     bl_label = "Setup skirt bones"
     bl_space_type = "VIEW_3D"
-    bl_region_type = "TOOLS"
-    bl_category = "Tools"
+    bl_region_type = "UI"
+    bl_category = "Tool"
 
     @classmethod
     def poll(self, context):
@@ -67,7 +67,7 @@ class DskjalSetupSkirtButton(bpy.types.Operator):
         #assign vertex groups
         vgNameHeader = "skirt_t."
         for v in bm.verts:
-            vg = ob.vertex_groups.new(vgNameHeader + "%03d" % v.index)
+            vg = ob.vertex_groups.new(name = vgNameHeader + "%03d" % v.index)
             vg.add([v.index], 1, 'REPLACE')
 
         #get armature
@@ -137,11 +137,18 @@ class DskjalSetupSkirtButton(bpy.types.Operator):
 
         return{'FINISHED'}
 
+classes = [
+    DskjalSetupSkirtUI,
+    DskjalSetupSkirtButton
+]
+
 def register():
-    bpy.utils.register_module(__name__)
+    for cls in classes:
+        bpy.utils.register_class(cls)
 
 def unregister():
-    bpy.utils.unregister_module(__name__)
+    for cls in classes:
+        bpy.utils.unregister_class(cls)
 
 if __name__ == "__main__":
     register()
