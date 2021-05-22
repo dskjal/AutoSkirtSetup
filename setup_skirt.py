@@ -18,12 +18,14 @@
 import bpy
 import bmesh
 import mathutils
+from bpy.props import *
+
 
 bl_info = {
     "name": "Setup skirt bone",
     "author": "dskjal",
     "version": (1, 0),
-    "blender": (2, 80, 0),
+    "blender": (2, 83, 0),
     "location": "Properties Shelf",
     "description": "Setup skirt bones",
     "warning": "",
@@ -33,7 +35,8 @@ bl_info = {
     "category": "Rigging"
 }
 
-class DskjalSetupSkirtUI(bpy.types.Panel):
+element_table = {'X':0, 'Y':1, 'Z':2}
+class DSKJAL_PT_SETUP_SKIRT_UI(bpy.types.Panel):
     bl_label = "Setup skirt bones"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
@@ -41,50 +44,58 @@ class DskjalSetupSkirtUI(bpy.types.Panel):
 
     @classmethod
     def poll(self, context):
-        try:
-            return context.active_object.type == 'MESH'
-        except:
-            return 0
+        return context.active_object and context.active_object.type == 'MESH'
 
     def draw(self, context):
-        self.layout.operator("dskjal.setupskirtbutton")
+        my_props = context.scene.setup_skirt_props
+        col = self.layout.column(align=True)
+        row = col.row()
+        row.prop(my_props, 'element')
 
-class DskjalSetupSkirtButton(bpy.types.Operator):
+        row = col.row()
+        row.prop(my_props, 'direction')
+
+        col.separator()
+        btn = col.operator("dskjal.setupskirtbutton")
+        btn.element = element_table[list(my_props.element)[0]]
+        btn.is_plus_direction = list(my_props.direction)[0] == '+'
+
+class DSKJAL_OT_SETUP_SKIRT_BUTTON(bpy.types.Operator):
     bl_idname = "dskjal.setupskirtbutton"
     bl_label = "Setup skirt bones"
+    element : bpy.props.IntProperty(default=2)
+    is_plus_direction : bpy.props.BoolProperty(default=False)
   
     def execute(self, context):
         ob = bpy.context.active_object
 
         #get bmesh
         bpy.ops.object.mode_set(mode='OBJECT')
-        if ob.data.is_editmode:
-            bm = bmesh.from_edit_mesh(ob.data)
-        else:
-            bm = bmesh.new()
-            bm.from_mesh(ob.data)
+        bm = bmesh.new()
+        bm.from_mesh(ob.data)
 
-        #assign vertex groups
+        # create vertex groups
         vgNameHeader = "skirt_t."
         for v in bm.verts:
             vg = ob.vertex_groups.new(name = vgNameHeader + "%03d" % v.index)
             vg.add([v.index], 1, 'REPLACE')
 
-        #get armature
+        # add an armature
         bpy.ops.object.add(type='ARMATURE', enter_editmode=True ,location=ob.location)
         amt = bpy.context.object
         amt.name = "AutoSetupedSkirt"
 
         #-----------------------create bones----------------------------
-        bpy.ops.object.mode_set(mode='EDIT')
-
         #get roop start
         terminalVerts = [v for v in bm.verts if len(v.link_edges)==3]
-        meanPos = mathutils.Vector((0.0,0.0,0.0))
+        mean_pos = mathutils.Vector((0.0,0.0,0.0))
         weight = 1/len(terminalVerts)
         for v in terminalVerts:
-            meanPos += v.co * weight
-        heads = [v for v in terminalVerts if v.co.z > meanPos.z]
+            mean_pos += v.co * weight
+        if self.is_plus_direction:
+            heads = [v for v in terminalVerts if v.co[self.element] < mean_pos[self.element]]
+        else:
+            heads = [v for v in terminalVerts if v.co[self.element] > mean_pos[self.element]]
 
         tailIndexTable = [-1]*len(bm.verts)
         boneNameHeader = "skirt."
@@ -99,20 +110,25 @@ class DskjalSetupSkirtButton(bpy.types.Operator):
                 top = bottom = v.link_edges[0].other_vert(v)
                 for e in v.link_edges:
                     other = e.other_vert(v)
-                    if bottom.co.z > other.co.z:
+                    if bottom.co[self.element] > other.co[self.element]:
                         bottom = other
-                    elif top.co.z < other.co.z:
+                    elif top.co[self.element] < other.co[self.element]:
                         top = other
 
+                if self.is_plus_direction:
+                    tmp = bottom
+                    bottom = top
+                    top = tmp
+                    
                 #append tail(i.e. next head)
                 b.tail = bottom.co
                 if len(bottom.link_edges) > 3:
                     tails.append(bottom)
 
-                #create index
+                # register index
                 tailIndexTable[v.index] = bottom.index
 
-                #parenting
+                # parenting if a vertex is not terminal
                 if len(v.link_edges) > 3:
                     parentName = boneNameHeader + "%03d" % top.index
                     b.parent = amt.data.edit_bones[parentName]
@@ -137,16 +153,24 @@ class DskjalSetupSkirtButton(bpy.types.Operator):
 
         return{'FINISHED'}
 
-classes = [
-    DskjalSetupSkirtUI,
-    DskjalSetupSkirtButton
-]
+class DSKJAL_Setup_Skirt_Props(bpy.types.PropertyGroup):
+    element : bpy.props.EnumProperty(name='axis', description='Axis', default={'Z'}, options={'ENUM_FLAG'}, items=(('X', 'X', ''), ('Y', 'Y', ''), ('Z', 'Z', '')))
+    direction : bpy.props.EnumProperty(name='direction', description='select +/-', default={'-'}, options={'ENUM_FLAG'}, items=(('+', '+', ''), ('-', '-', '')))
+
+
+classes = (
+    DSKJAL_PT_SETUP_SKIRT_UI,
+    DSKJAL_OT_SETUP_SKIRT_BUTTON,
+    DSKJAL_Setup_Skirt_Props
+)
 
 def register():
     for cls in classes:
         bpy.utils.register_class(cls)
+    bpy.types.Scene.setup_skirt_props = bpy.props.PointerProperty(type=DSKJAL_Setup_Skirt_Props)
 
 def unregister():
+    if hasattr(bpy.types.Scene, "setup_skirt_props"): del bpy.types.Scene.setup_skirt_props
     for cls in classes:
         bpy.utils.unregister_class(cls)
 
