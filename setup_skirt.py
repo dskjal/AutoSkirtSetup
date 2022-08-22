@@ -15,21 +15,19 @@
 #  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
 #
 # ##### END GPL LICENSE BLOCK #####
-import bpy
-import bmesh
-import mathutils
+import bpy, bmesh, mathutils, math, sys
 from bpy.props import *
 
 
 bl_info = {
     "name": "Setup skirt bone",
     "author": "dskjal",
-    "version": (1, 0),
+    "version": (2, 0),
     "blender": (2, 83, 0),
     "location": "Properties Shelf",
     "description": "Setup skirt bones",
     "warning": "",
-    "support": "TESTING",
+    "support": "COMMUNITY",
     "wiki_url": "",
     "tracker_url": "",
     "category": "Rigging"
@@ -125,6 +123,23 @@ class DSKJAL_OT_SETUP_SKIRT_BUTTON(bpy.types.Operator):
                 if len(bottom.link_edges) > 3:
                     tails.append(bottom)
 
+                # set roll
+                angle_cos = v.normal.dot(b.z_axis)
+                angle_cos = max(-1, min(angle_cos, 1)) # clamp
+                roll = math.acos(angle_cos)
+                if self.element == 2: # Z
+                    b.roll = roll if v.normal.x >=0 else -roll
+                elif self.element == 0: # X
+                    if self.is_plus_direction:
+                        b.roll = roll if v.normal.y < 0 else -roll
+                    else:
+                        b.roll = roll if v.normal.y >= 0 else -roll
+                elif self.element == 1: # Y
+                    if self.is_plus_direction:
+                        b.roll = -roll if v.normal.x < 0 else roll
+                    else:
+                        b.roll = roll if v.normal.x < 0 else -roll
+
                 # register index
                 tailIndexTable[v.index] = bottom.index
 
@@ -137,9 +152,9 @@ class DSKJAL_OT_SETUP_SKIRT_BUTTON(bpy.types.Operator):
             heads = tails
 
 
-        #add ik
         bpy.ops.object.mode_set(mode='POSE')
         for b in amt.pose.bones:
+            #add ik
             ik = b.constraints.new(type='IK')
             ik.target = ob
             ik.subtarget = vgNameHeader + "%03d" % tailIndexTable[int(b.name[-3:])]
