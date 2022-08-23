@@ -22,7 +22,7 @@ from bpy.props import *
 bl_info = {
     "name": "Setup skirt bone",
     "author": "dskjal",
-    "version": (2, 0),
+    "version": (3, 0),
     "blender": (2, 83, 0),
     "location": "Properties Shelf",
     "description": "Setup skirt bones",
@@ -34,6 +34,34 @@ bl_info = {
 }
 
 element_table = {'X':0, 'Y':1, 'Z':2}
+
+def search_neighbor(bm_vert, elem, is_plus_direction):
+    top = bottom = bm_vert.link_edges[0].other_vert(bm_vert)
+    for e in bm_vert.link_edges:
+        other = e.other_vert(bm_vert)
+        if bottom.co[elem] > other.co[elem]:
+            bottom = other
+        elif top.co[elem] < other.co[elem]:
+            top = other
+
+    if is_plus_direction:
+        tmp = bottom
+        bottom = top
+        top = tmp
+    
+    return (top, bottom)
+
+def is_selected_terminal(bm_vert, elem, is_plus_direction):
+        if bm_vert.select:
+            top, bottom = search_neighbor(bm_vert, elem, is_plus_direction)
+            if not top.select and not bottom.select:
+                return False # isolated point
+            return not top.select
+
+        return False
+
+
+
 class DSKJAL_PT_SETUP_SKIRT_UI(bpy.types.Panel):
     bl_label = "Setup skirt bones"
     bl_space_type = "VIEW_3D"
@@ -84,28 +112,28 @@ class DSKJAL_OT_SETUP_SKIRT_BUTTON(bpy.types.Operator):
             vg = ob.vertex_groups.new(name=name) if ob.vertex_groups.find(name) == -1 else ob.vertex_groups[name] 
             vg.add([v.index], 1, 'REPLACE')
 
-        #-----------------------create bones----------------------------
         #get roop start
         if self.is_select_only:
-            terminalVerts = [v for v in bm.verts if v.select and len(v.link_edges)==3]
+            terminalVerts = [v for v in bm.verts if is_selected_terminal(v, self.element, self.is_plus_direction)]
+            heads = terminalVerts
         else:
             terminalVerts = [v for v in bm.verts if len(v.link_edges)==3]
+
         num_terminal_verts = len(terminalVerts)
         if num_terminal_verts == 0:
             return {"CANCELLED"}
         
-        mean_pos = mathutils.Vector((0.0,0.0,0.0))
-        weight = 1/num_terminal_verts
-        for v in terminalVerts:
-            mean_pos += v.co * weight
+        if not self.is_select_only:
+            mean_pos = mathutils.Vector((0.0,0.0,0.0))
+            weight = 1/num_terminal_verts
+            for v in terminalVerts:
+                mean_pos += v.co * weight
 
-        if num_terminal_verts > 1:
-            if self.is_plus_direction:
-                heads = [v for v in terminalVerts if v.co[self.element] < mean_pos[self.element]]
-            else:
-                heads = [v for v in terminalVerts if v.co[self.element] > mean_pos[self.element]]
-        else:
-            heads = terminalVerts
+            if num_terminal_verts > 1:
+                if self.is_plus_direction:
+                    heads = [v for v in terminalVerts if v.co[self.element] < mean_pos[self.element]]
+                else:
+                    heads = [v for v in terminalVerts if v.co[self.element] > mean_pos[self.element]]
 
         tail_index_table = [-1]*len(bm.verts)
         boneNameHeader = "skirt."
@@ -113,7 +141,7 @@ class DSKJAL_OT_SETUP_SKIRT_BUTTON(bpy.types.Operator):
         # add an armature
         bpy.ops.object.add(type='ARMATURE', enter_editmode=True ,location=ob.location)
         amt = bpy.context.object
-        amt.name = "AutoSetupedSkirt"
+        amt.name = "Auto_Setuped_Skirt"
 
         while len(heads) != 0:
             tails = []
@@ -122,19 +150,7 @@ class DSKJAL_OT_SETUP_SKIRT_BUTTON(bpy.types.Operator):
                 b.head = v.co
 
                 #search tail
-                top = bottom = v.link_edges[0].other_vert(v)
-                for e in v.link_edges:
-                    other = e.other_vert(v)
-                    if bottom.co[self.element] > other.co[self.element]:
-                        bottom = other
-                    elif top.co[self.element] < other.co[self.element]:
-                        top = other
-
-                if self.is_plus_direction:
-                    tmp = bottom
-                    bottom = top
-                    top = tmp
-                    
+                top, bottom = search_neighbor(v, self.element, self.is_plus_direction)
                 b.tail = bottom.co
 
                 #append tail(i.e. next head)
@@ -166,25 +182,26 @@ class DSKJAL_OT_SETUP_SKIRT_BUTTON(bpy.types.Operator):
                 tail_index_table[v.index] = bottom.index
 
                 # parenting if a vertex is not terminal
-                if len(v.link_edges) > 3:
-                    parentName = boneNameHeader + "%03d" % top.index
-                    b.parent = amt.data.edit_bones[parentName]
-                    b.use_connect = True
+                if not v in terminalVerts:
+                    parent_name = boneNameHeader + "%03d" % top.index
+                    if amt.data.edit_bones.find(parent_name) != -1:
+                        b.parent = amt.data.edit_bones[parent_name]
+                        b.use_connect = True
 
             heads = tails
 
 
-        # bpy.ops.object.mode_set(mode='POSE')
-        # for b in amt.pose.bones:
-        #     #add ik
-        #     ik = b.constraints.new(type='IK')
-        #     ik.target = ob
-        #     ik.subtarget = vgNameHeader + "%03d" % tail_index_table[int(b.name[-3:])]
-        #     ik.chain_count = 1
-        #     ik.use_stretch = 1
+        bpy.ops.object.mode_set(mode='POSE')
+        for b in amt.pose.bones:
+            #add ik
+            ik = b.constraints.new(type='IK')
+            ik.target = ob
+            ik.subtarget = vgNameHeader + "%03d" % tail_index_table[int(b.name[-3:])]
+            ik.chain_count = 1
+            ik.use_stretch = 1
 
-        #     #enable stretch
-        #     b.ik_stretch = 1
+            #enable stretch
+            b.ik_stretch = 1
 
         bpy.ops.object.mode_set(mode='OBJECT')
         bm.free()
