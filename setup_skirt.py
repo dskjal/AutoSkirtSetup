@@ -51,11 +51,26 @@ def search_neighbor(bm_vert, elem, is_plus_direction):
     
     return (top, bottom)
 
+def is_non_manifold_terminal(bm_vert):
+    return len(bm_vert.link_edges) > len(bm_vert.link_faces)
+
+def is_isolation_point(bm_vert):
+    for e in bm_vert.link_edges:
+        other = e.other_vert(bm_vert)
+        if other.select:
+            return False
+
+    return True
+
 def is_selected_terminal(bm_vert, elem, is_plus_direction):
         if bm_vert.select:
+            if is_non_manifold_terminal(bm_vert):
+                return True
+
+            if is_isolation_point(bm_vert):
+                return False
+
             top, bottom = search_neighbor(bm_vert, elem, is_plus_direction)
-            if not top.select and not bottom.select:
-                return False # isolated point
             return not top.select
 
         return False
@@ -157,9 +172,10 @@ class DSKJAL_OT_SETUP_SKIRT_BUTTON(bpy.types.Operator):
                 if len(bottom.link_edges) > 3:
                     tails.append(bottom)
                 
-                if self.is_select_only and not bottom.select:
-                    amt.data.edit_bones.remove(b)
-                    continue
+                if self.is_select_only:
+                    if not bottom.select:
+                        amt.data.edit_bones.remove(b)
+                        continue
 
                 # set roll
                 angle_cos = v.normal.dot(b.z_axis)
