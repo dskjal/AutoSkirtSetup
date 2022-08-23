@@ -15,7 +15,7 @@
 #  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
 #
 # ##### END GPL LICENSE BLOCK #####
-import bpy, bmesh, mathutils, math, sys
+import bpy, bmesh, mathutils, math
 from bpy.props import *
 
 
@@ -52,17 +52,22 @@ class DSKJAL_PT_SETUP_SKIRT_UI(bpy.types.Panel):
 
         row = col.row()
         row.prop(my_props, 'direction')
+        col.separator()
+
+        col.prop(my_props, 'is_select_only', text="select only")
 
         col.separator()
         btn = col.operator("dskjal.setupskirtbutton")
         btn.element = element_table[list(my_props.element)[0]]
         btn.is_plus_direction = list(my_props.direction)[0] == '+'
+        btn.is_select_only = my_props.is_select_only
 
 class DSKJAL_OT_SETUP_SKIRT_BUTTON(bpy.types.Operator):
     bl_idname = "dskjal.setupskirtbutton"
     bl_label = "Setup skirt bones"
     element : bpy.props.IntProperty(default=2)
     is_plus_direction : bpy.props.BoolProperty(default=False)
+    is_select_only : bpy.props.BoolProperty(default=False)
   
     def execute(self, context):
         ob = bpy.context.active_object
@@ -75,28 +80,40 @@ class DSKJAL_OT_SETUP_SKIRT_BUTTON(bpy.types.Operator):
         # create vertex groups
         vgNameHeader = "skirt_t."
         for v in bm.verts:
-            vg = ob.vertex_groups.new(name = vgNameHeader + "%03d" % v.index)
+            name = vgNameHeader + "%03d" % v.index
+            vg = ob.vertex_groups.new(name=name) if ob.vertex_groups.find(name) == -1 else ob.vertex_groups[name] 
             vg.add([v.index], 1, 'REPLACE')
+
+        #-----------------------create bones----------------------------
+        #get roop start
+        if self.is_select_only:
+            terminalVerts = [v for v in bm.verts if v.select and len(v.link_edges)==3]
+        else:
+            terminalVerts = [v for v in bm.verts if len(v.link_edges)==3]
+        num_terminal_verts = len(terminalVerts)
+        if num_terminal_verts == 0:
+            return {"CANCELLED"}
+        
+        mean_pos = mathutils.Vector((0.0,0.0,0.0))
+        weight = 1/num_terminal_verts
+        for v in terminalVerts:
+            mean_pos += v.co * weight
+
+        if num_terminal_verts > 1:
+            if self.is_plus_direction:
+                heads = [v for v in terminalVerts if v.co[self.element] < mean_pos[self.element]]
+            else:
+                heads = [v for v in terminalVerts if v.co[self.element] > mean_pos[self.element]]
+        else:
+            heads = terminalVerts
+
+        tail_index_table = [-1]*len(bm.verts)
+        boneNameHeader = "skirt."
 
         # add an armature
         bpy.ops.object.add(type='ARMATURE', enter_editmode=True ,location=ob.location)
         amt = bpy.context.object
         amt.name = "AutoSetupedSkirt"
-
-        #-----------------------create bones----------------------------
-        #get roop start
-        terminalVerts = [v for v in bm.verts if len(v.link_edges)==3]
-        mean_pos = mathutils.Vector((0.0,0.0,0.0))
-        weight = 1/len(terminalVerts)
-        for v in terminalVerts:
-            mean_pos += v.co * weight
-        if self.is_plus_direction:
-            heads = [v for v in terminalVerts if v.co[self.element] < mean_pos[self.element]]
-        else:
-            heads = [v for v in terminalVerts if v.co[self.element] > mean_pos[self.element]]
-
-        tailIndexTable = [-1]*len(bm.verts)
-        boneNameHeader = "skirt."
 
         while len(heads) != 0:
             tails = []
@@ -118,10 +135,15 @@ class DSKJAL_OT_SETUP_SKIRT_BUTTON(bpy.types.Operator):
                     bottom = top
                     top = tmp
                     
-                #append tail(i.e. next head)
                 b.tail = bottom.co
+
+                #append tail(i.e. next head)
                 if len(bottom.link_edges) > 3:
                     tails.append(bottom)
+                
+                if self.is_select_only and not bottom.select:
+                    amt.data.edit_bones.remove(b)
+                    continue
 
                 # set roll
                 angle_cos = v.normal.dot(b.z_axis)
@@ -141,7 +163,7 @@ class DSKJAL_OT_SETUP_SKIRT_BUTTON(bpy.types.Operator):
                         b.roll = roll if v.normal.x < 0 else -roll
 
                 # register index
-                tailIndexTable[v.index] = bottom.index
+                tail_index_table[v.index] = bottom.index
 
                 # parenting if a vertex is not terminal
                 if len(v.link_edges) > 3:
@@ -152,25 +174,27 @@ class DSKJAL_OT_SETUP_SKIRT_BUTTON(bpy.types.Operator):
             heads = tails
 
 
-        bpy.ops.object.mode_set(mode='POSE')
-        for b in amt.pose.bones:
-            #add ik
-            ik = b.constraints.new(type='IK')
-            ik.target = ob
-            ik.subtarget = vgNameHeader + "%03d" % tailIndexTable[int(b.name[-3:])]
-            ik.chain_count = 1
-            ik.use_stretch = 1
+        # bpy.ops.object.mode_set(mode='POSE')
+        # for b in amt.pose.bones:
+        #     #add ik
+        #     ik = b.constraints.new(type='IK')
+        #     ik.target = ob
+        #     ik.subtarget = vgNameHeader + "%03d" % tail_index_table[int(b.name[-3:])]
+        #     ik.chain_count = 1
+        #     ik.use_stretch = 1
 
-            #enable stretch
-            b.ik_stretch = 1
+        #     #enable stretch
+        #     b.ik_stretch = 1
 
         bpy.ops.object.mode_set(mode='OBJECT')
+        bm.free()
 
         return{'FINISHED'}
 
 class DSKJAL_Setup_Skirt_Props(bpy.types.PropertyGroup):
     element : bpy.props.EnumProperty(name='axis', description='Axis', default={'Z'}, options={'ENUM_FLAG'}, items=(('X', 'X', ''), ('Y', 'Y', ''), ('Z', 'Z', '')))
     direction : bpy.props.EnumProperty(name='direction', description='select +/-', default={'-'}, options={'ENUM_FLAG'}, items=(('+', '+', ''), ('-', '-', '')))
+    is_select_only : bpy.props.BoolProperty(name='is_select_only', description='select only', default=False)
 
 
 classes = (
