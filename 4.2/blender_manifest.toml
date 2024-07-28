@@ -1,0 +1,15 @@
+schema_version = "1.0.0"
+
+id = "auto_skirt_setup"
+version = "1.1.0"
+name = "Auto Skirt Setup"
+tagline = "円柱メッシュにボーンを設定する"
+maintainer = "dskjal <email@address.com>"
+type = "add-on"
+website = "https://github.com/dskjal/AutoSkirtSetup"
+tags = ["Animation", "Physics", "Rigging"]
+blender_version_min = "4.2.0"
+
+license = [
+  "SPDX:GPL-2.0-or-later",
+]
